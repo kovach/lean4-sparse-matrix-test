@@ -4,10 +4,17 @@ import Init.Data.Float
 macro "exfalso" : tactic => `(apply False.elim)
 macro "hm" : tactic => `(apply id)
 
+section Util
 def fst : α × β → α
 | (a, _) => a
 def snd : α × β → β
 | (_, b) => b
+def range (n : Nat) : List Nat := do
+    let mut result := []
+    for x in [0:n] do
+        result := x :: result
+    return result.reverse
+end Util
 
 /-- A function-backed vector -/
 structure Vec (ι : Type u) (α : Type v) where
@@ -345,12 +352,6 @@ class LinearOrder (α : Type _) extends PartialOrder α where
 
 open PreOrder
 
-def Unfold (σ α : Type _) := σ → Option (α × σ)
-structure Ana (σ α : Type _) where
-    state : σ
-    step : Unfold σ α
-
-namespace Ana
 
 -- TODO might as well have two type parameters
 inductive EitherOr (α β : Type _)
@@ -370,10 +371,7 @@ def reduce (unit : α) (op : α → α → α) : EitherOr α α → α
 | EitherOr.right y => op unit  y
 | EitherOr.both x y => op x y
 end EitherOr
-
 open EitherOr
-
-#check (α : Type _) → (a : α) → Bool
 
 --[s: LinearOrder β] [DecidableRel s.LessEq]
 -- def merge_aux [DecidableEq β] [HasLessEq β] [DecidableRel (. ≤ . : β → β → Prop)] : Nat → List (β × α) → List (β × α) → List (β × EitherOr α)
@@ -435,44 +433,6 @@ def scaleArray [HMul α α₁ α₁] (r: α) (u : Array α₁) : Array α₁ :=
 
 instance [Mul α] : HMul α (Array α) (Array α) := ⟨ scaleArray ⟩
 
-def mergeIters [o : PreOrder β] [DecidableRel o.LessEq]
-    (f g : Unfold σ β) : Unfold (σ×σ) β
-    | (s1, s2) => match f s1, g s2 with
-        | none, none => none
-        | none, some (b,s) => some (b, (s1, s))
-        | some (b,s), none => some (b, (s1, s))
-        | some (b1,s1'), some (b2,s2') =>
-            match decide (b1 ≤ b2) with
-            | true => some (b1, (s1', s2))
-            | false => some (b2, (s1, s2'))
-
-def listIter : Unfold (List α) α := fun
-| [] => none
-| x :: tail => some (x, tail)
-
-partial def toList (x : Ana σ α) : List α :=
-    match x.step x.state with
-    | none => []
-    | some (b, s) => b :: toList ⟨ s, x.step ⟩
-
--- def forIn {α : Type u} {β : Type v} {m : Type v → Type w} [Monad m] (b : β) (x : Ana σ α) (v : σ)
--- (f : α → β → m (ForInStep β)) : m β :=
-
--- TODO should try rewriting some of these entries with streams:
-example [Stream ρ α] [Stream γ α] : Stream (ρ × γ) (EitherOr α α) where
-  next? | (s₁, s₂) =>
-    match Stream.next? s₁ with
-    | none => match Stream.next? s₂ with
-        | none => none
-        | some (b, s₂) => some (EitherOr.right b, (s₁, s₂))
-    | some (a, s₁) => match Stream.next? s₂ with
-      | none => some (EitherOr.left a, (s₁, s₂))
-      -- todo: compare the values and do the proper merge
-      | some (b, s₂) => sorry
-
-end Ana
-open Ana
-
 structure Tensor? (ι α : Type _) :=
     locate : ι → α
     σ : Type _
@@ -488,20 +448,18 @@ namespace SparseVec
 instance [r : Repr (Array (ι × α))] : Repr (SparseVec ι α) := ⟨ r.reprPrec ⟩
 instance [r : ToString (Array (ι × α))] : ToString (SparseVec ι α) := ⟨ r.toString ⟩
 
+def exAdd1 := ()
 def sparseAdd [s : Add α] [u : HasZero α] [DecidableEq β] [le : HasLessEq β] [DecidableRel le.LessEq]
-    (xs : SparseVec β α ) (ys : SparseVec β α ) : SparseVec β α := do
+    (xs ys : SparseVec β α ) : SparseVec β α := do
     let mut res := Array.empty
     for (coord, values) in mergeIntoArray (xs.size + ys.size) xs.toList ys.toList Array.empty do
         res := res.push (coord, EitherOr.reduce u.zero s.add values)
     return res
 
-#eval sparseAdd #[(1,1), (2, 3)] #[(1,1),(2,1)]
+#eval sparseAdd #[(1, 1), (2, 3)] #[(1,1),(2,1)]
 
-
-
-#check #[1].map id
 def map (f : α → β) (v : SparseVec ι α) : SparseVec ι β :=
-Array.map (λ (c, x) => (c, f x)) v
+    Array.map (λ (c, x) => (c, f x)) v
 
 def ofDenseList : List α → SparseVec Nat α
 | values => snd $ values.foldr (init := (0, #[])) λ v (n, acc) => (n+1, acc.push (n,v))
@@ -514,11 +472,13 @@ instance [HasZero α] [le: HasLessEq ι] [DecidableEq ι] [DecidableRel le.LessE
 
 instance : HasZero (SparseVec ι α) where
     zero := #[]
+instance : Inhabited (SparseVec ι α) := ⟨ HasZero.zero ⟩
 
-def mergeAndIntoArray [DecidableEq β] [le : HasLessEq β] [DecidableRel le.LessEq] (n : Nat) (xs : List (β × α₀)) (ys : List (β × α₁))
+def mergeAndIntoArray [DecidableEq β] [le : HasLessEq β] [DecidableRel le.LessEq] (n : Nat)
+    (xs : List (β × α₀)) (ys : List (β × α₁))
     : Array (β × (α₀ × α₁)) := do
 let rec step
-    | 0, _, _, acc => acc
+    | 0, _, _,       acc => acc
     | (n+1), [], ys, acc => acc
     | (n+1), xs, [], acc => acc
     | (n+1), l1@(⟨i, x⟩ :: xs), l2@(⟨j, y⟩ :: ys), acc =>
@@ -531,50 +491,31 @@ let rec step
             step n l1 ys acc
 step n xs ys #[]
 
-def sparseHMul [s : HMul α α₁ α₁] [Add α₁] [u : HasZero α₁] [DecidableEq ι] [HasLessEq ι]
+def hMulDot [s : HMul α α₁ α₁] [Add α₁] [u : HasZero α₁] [DecidableEq ι] [HasLessEq ι]
     [le : HasLessEq ι] [DecidableRel le.LessEq] (xs : SparseVec ι α) (ys : SparseVec ι α₁) : α₁ := do
     let mut res := (u.zero : α₁)
     for (_, (scalar, vector)) in mergeAndIntoArray (xs.size + ys.size) xs.toList ys.toList do
         res := res + scalar * vector
     return res
 
--- def comb [HasZero α] [Mul α] [Add α] [Inhabited α] [Enumerable ρ] [DecidableEq ι] [le : HasLessEq ι] [DecidableRel le.LessEq]
---          (A : List (SparseVec ι α)) (B : SparseVec ι (DenseVec ρ α)) : List (DenseVec ρ α) := do
---     let mut result := []
---     for row in A do
---         let currentRow := sparseHMul row B
---         result := currentRow :: result
---     return result.reverse
-def linearCombinationOfRows [HasZero α] [Mul α] [Add α] [Inhabited α] [Enumerable ρ]
-    [DecidableEq ι] [le : HasLessEq ι] [DecidableRel le.LessEq]
-         (A : SparseVec Nat (SparseVec ι α)) (B : SparseVec ι (DenseVec ρ α)) : SparseVec Nat (DenseVec ρ α) := do
-    A.map (λ row => sparseHMul row B)
-def linearCombinationOfRows' [Mul α] [Add α] [Inhabited α]
-    [DecidableEq ι] [le : HasLessEq ι] [DecidableRel le.LessEq]
+def linearCombinationOfRows [DecidableEq ι] [le : HasLessEq ι] [DecidableRel le.LessEq]
     [HMul α β β] [Add β] [HasZero β]
          (A : SparseVec Nat (SparseVec ι α)) (B : SparseVec ι β) : SparseVec Nat β := do
-    A.map (λ row => sparseHMul row B)
+    A.map (λ row => hMulDot row B)
 
--- #eval ((linearCombinationOfRows
--- [#[(1,3), (4,2)],
---  #[(3,2)]]
+instance [DecidableEq ι] [le : HasLessEq ι] [DecidableRel le.LessEq]
+    [HMul α β β] [Add β] [HasZero β]
+    : HMul (SparseVec Nat (SparseVec ι α)) (SparseVec ι β) (SparseVec Nat β) :=
+    ⟨ linearCombinationOfRows ⟩
 
---  #[(1, ![4,5]),
---    (3, ![1,2])]).map DenseVec.array : List (Array Nat))
-
--- #eval ((linearCombinationOfRows
--- [#[(1,3), (4,2)],
---  #[(3,2)]]
-
---  #[(1, ![4,5])]).map DenseVec.array : List (Array Nat))
-
-#check Array.set!
 def sparseTranspose (n : Nat) (A : SparseVec Nat (SparseVec Nat α)) : SparseVec Nat (SparseVec Nat α) := do
     let mut out := Array.mkArray n (0, #[])
     for (rowC, row) in A do
         for (coord, value) in row do
             out := Array.set! out (coord-1) (coord, out[coord-1].2.push (rowC, value))
     return out
+-- todo: remove Nat arg
+-- postfix:max "ᵀ" => sparseTranspose
 
 def printMat (mat : SparseVec Nat (SparseVec Nat Float)) : IO Unit := do
     for (i, row) in mat do
@@ -583,31 +524,7 @@ def printMat (mat : SparseVec Nat (SparseVec Nat Float)) : IO Unit := do
 
 end SparseVec
 
-
-def kyle_main : IO UInt32 := do
-    let mut v : DenseVec (Fin 3) Nat := ![2,22,222]
-    v := DenseVec.of $ toVec v + toVec v + 2
-    for x in v do
-        IO.println s!"elt of v is {x}"
-    let s : Nat := Vec.sum $ toVec v
-    IO.println s!"sum = {s}"
-    return 0
-
-def range (n : Nat) : List Nat := do
-    let mut result := []
-    for x in [0:n] do
-        result := x :: result
-    return result.reverse
-
 section ParsingMtx
-
--- namespace Float
--- @[extern c inline "(- #1)"]   constant neg : Float → Float
--- instance : Neg Float       := neg⟩
--- #check Float.neg
--- #check Float.ofScientific
--- #eval (Float.ofScientific 5 true 0)
--- end Float
 
 def parseFloat! : String → Float
 | str => do
@@ -620,16 +537,13 @@ def parseFloat! : String → Float
 
 #eval parseFloat! "-3.534"
 
-def build : IO (Nat × SparseVec Nat (SparseVec Nat Float)) := do
+def parseMTX (input : String) : (Nat × Nat × SparseVec Nat (SparseVec Nat Float)) := do
     let ValueType := Float
-    let bench_too_large := "../../taco/benchmarks/thermomech_dK/thermomech_dK.mtx"
-    let benchSmall := "../../taco/benchmarks/sherman2/sherman2.mtx"
-    let benchTiny := "../../taco/benchmarks/test.mtx"
-    let input ← IO.FS.readFile benchSmall
     let mut result : SparseVec Nat (SparseVec Nat ValueType) := #[]
     let mut currentRowIndex : Nat := 1 -- TODO read from first line
     let mut currentRow : SparseVec Nat ValueType := #[]
     let mut nnz := 0
+
     let lines := List.dropWhile (λ line => line.front == '%') (input.splitOn "\n")
     for line in lines.drop 1 do {
         nnz := nnz + 1
@@ -637,7 +551,7 @@ def build : IO (Nat × SparseVec Nat (SparseVec Nat Float)) := do
         match data with
         | [col, row, value] =>
             let rowN := row.toNat!
-            if rowN != currentRowIndex then
+            if  rowN != currentRowIndex then
                 result := result.push (currentRowIndex, currentRow)
                 currentRowIndex := rowN
                 currentRow := #[]
@@ -647,9 +561,17 @@ def build : IO (Nat × SparseVec Nat (SparseVec Nat Float)) := do
     result := result.push (currentRowIndex, currentRow)
     let n := currentRowIndex
     -- result := result[:10000]
+    return (n, nnz, SparseVec.sparseTranspose n result)
+
+def loadTestCase : IO (Nat × SparseVec Nat (SparseVec Nat Float)) := do
+    let bench_too_large := "../../taco/benchmarks/thermomech_dK/thermomech_dK.mtx"
+    let benchSmall := "../../taco/benchmarks/sherman2/sherman2.mtx"
+    let benchTiny := "../../taco/benchmarks/test.mtx"
+    let input ← IO.FS.readFile benchSmall
+    let (n, nnz, matrix) := parseMTX input
     IO.println s!"rows: {n}"
     IO.println s!"nnz:  {nnz}"
-    return (n, SparseVec.sparseTranspose n result)
+    return (n, matrix)
 
 end ParsingMtx
 
@@ -657,29 +579,24 @@ open DenseVec
 open SparseVec
 
 #check (HasZero.zero : DenseVec (Fin 3) Nat)
-#check ofDenseList $ range 10 |> List.map λ i => (fill 1 : DenseVec (Fin 1) Nat)
 
-def junkMatrix : Unit := do
-    let inputDim := Fin 1
-    let zd : DenseVec inputDim Nat := fill 1
-    let Bsd : SparseVec Nat (DenseVec inputDim Nat) := ofDenseList (range 1100 |> List.map λ i => fill 1)
-    let Bss : SparseVec Nat (SparseVec Nat Nat) := ofDenseList (range 1100 |> List.map λ i => #[(1,1)])
-    let B' :=  #[(1, zd), (2, zd)]
-    ()
+def Matrix := SparseVec Nat (SparseVec Nat Float)
 
-def main : IO UInt32 := do
-    let (n, A) ← build
-    -- printMat A'
-    IO.println ""
-    -- printMat A
-    let A' := sparseTranspose n A
-    IO.println "computing"
-    let out := SparseVec.linearCombinationOfRows' A' A
+def printResult (out : Matrix) : IO Unit := do
     IO.println "printing result"
     IO.println s!"num nonzero rows: {out.size}"
 
-    for (index, row) in out[0:5] do
-        IO.println s!"{index}: {row[0:8].toArray}"
+    for (index, row) in out[0:2] do
+        IO.println s!"{index}: {row[0:3].toArray}"
 
     IO.println "done"
+
+def main : IO UInt32 := do
+    let (n, A) ← loadTestCase
+    let A' := sparseTranspose n A
+    IO.println "computing"
+
+    let out := A' * A * A'
+    printResult out
+
     return 0
