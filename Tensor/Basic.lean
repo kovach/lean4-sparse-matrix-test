@@ -1,8 +1,7 @@
 import Init.Data.Array.Subarray
 import Init.Data.Float
-
-macro "exfalso" : tactic => `(apply False.elim)
-macro "hm" : tactic => `(apply id)
+import Tensor.Order
+import Tensor.Enumerable
 
 section Util
 def fst : α × β → α
@@ -16,6 +15,13 @@ def range (n : Nat) : List Nat := do
     return result.reverse
 end Util
 
+class HasZero (α : Type _) where zero : α
+class HasOne (α : Type _) where one : α
+instance : HasZero Nat where zero := 0
+instance : HasOne  Nat where one := 1
+instance : HasZero Float where zero := 0.0
+instance : HasOne  Float where one := 1.0
+
 /-- A function-backed vector -/
 structure Vec (ι : Type u) (α : Type v) where
     toFun : ι → α
@@ -24,13 +30,6 @@ macro "vec" xs:Lean.explicitBinders " => " b:term : term => Lean.expandExplicitB
 
 /-- support `v[i]` notation. -/
 @[inline] def Vec.getOp (self : Vec ι α) (idx : ι) : α := self.toFun idx
-
-class HasZero (α : Type _) where zero : α
-class HasOne (α : Type _) where one : α
-instance : HasZero Nat where zero := 0
-instance : HasOne  Nat where one := 1
-instance : HasZero Float where zero := 0.0
-instance : HasOne  Float where one := 1.0
 
 /-- A vector as a function mapping indices to values. -/
 class HasVec (β : Type u) (ι : outParam $ Type v) (α : outParam $ Type w) where
@@ -68,116 +67,7 @@ def transpose (v : Vec ι (Vec κ α)) : Vec κ (Vec ι α) := vec j i => v[i][j
 
 end Vec
 
-def Function.leftInverse (g : β → α) (f : α → β) : Prop :=
-    ∀ x, g (f x) = x
-def Function.rightInverse (g : β → α) (f : α → β) : Prop :=
-    Function.leftInverse f g
 
-structure Equiv (α : Sort u) (β : Sort v) where
-    toFun : α → β
-    invFun : β → α
-    leftInv : Function.leftInverse invFun toFun
-    rightInv : Function.rightInverse invFun toFun
-
-infix:25 " ≃ " => Equiv
-
-def Equiv.symm (f : α ≃ β) : β ≃ α where
-    toFun := f.invFun
-    invFun := f.toFun
-    leftInv := f.rightInv
-    rightInv := f.leftInv
-
-/-- An equivalence "is" a function. -/
-instance (α : Type u) (β : Type v) : CoeFun (Equiv α β) (λ _ => α → β) where
-    coe := Equiv.toFun
-
-class Enumerable (α : Type u) where
-    card : Nat
-    enum : α ≃ Fin card
-
-class MulComm (α : Type u) [Mul α] where
-    mulComm : (x y : α) → x * y = y * x
-
-def Adder (α : Type u) := α
-
-
-theorem cartEncodeProp {i j m n : Nat} (hi : i < m) (hj : j < n) : i * n + j < m * n := by
-    cases m with
-    | zero => exfalso; exact Nat.notLtZero _ hi
-    | succ m => {
-        rw Nat.succMul;
-        exact Nat.ltOfLeOfLt (Nat.addLeAddRight (Nat.mulLeMulRight _ (Nat.leOfLtSucc hi)) _) (Nat.addLtAddLeft hj _)
-    }
-
-def cartDecode {n m : Nat} (k : Fin (n * m)) : Fin n × Fin m :=
-    let ⟨k, h⟩ := k
-    (
-        ⟨k / m, sorry⟩,
-        ⟨k % m, Nat.modLt _ (by { cases m; exfalso; rw Nat.mulZero at h; exact Nat.notLtZero _ h; apply Nat.succPos})⟩
-    )
-
-instance [Enumerable α] [Enumerable β] : Enumerable (α × β) where
-    card := Enumerable.card α * Enumerable.card β
-    enum := {
-        toFun := λ (a, b) =>
-            let ⟨i, hi⟩ := Enumerable.enum a
-            let ⟨j, hj⟩ := Enumerable.enum b
-            ⟨i * Enumerable.card β + j, cartEncodeProp hi hj⟩
-        invFun := λ n =>
-            let (i, j) := cartDecode n
-            (Enumerable.enum.symm i, Enumerable.enum.symm j)
-        leftInv := sorry
-        rightInv := sorry
-    }
-
-instance : Enumerable (Fin n) where
-    card := n
-    enum := {
-        toFun := id
-        invFun := id
-        leftInv := λ _ => rfl
-        rightInv := λ _ => rfl
-    }
-
-instance : Enumerable Bool where
-    card := 2
-    enum := {
-        toFun := fun
-        | false => 0
-        | true => 1
-        invFun := fun
-        | ⟨0, _⟩ => false
-        | ⟨1, _⟩ => true
-        | ⟨n+2, h⟩ => False.elim (Nat.notSuccLeZero _ (Nat.leOfSuccLeSucc (Nat.leOfSuccLeSucc h)))
-        leftInv := fun
-            | true => rfl
-            | false => rfl
-        rightInv := fun
-            | ⟨0, _⟩ => rfl
-            | ⟨1, _⟩ => rfl
-            | ⟨n+2, h⟩ => False.elim (Nat.notSuccLeZero _ (Nat.leOfSuccLeSucc (Nat.leOfSuccLeSucc h)))
-    }
-
-instance : Enumerable Empty where
-    card := 0
-    enum := {
-        toFun := fun t => nomatch t
-        invFun := fun
-        | ⟨n, h⟩ => False.elim (Nat.notSuccLeZero _ h)
-        leftInv := fun t => nomatch t
-        rightInv := fun t => nomatch t
-    }
-
-def Enumerable.listOf.aux (α : Type u) [Enumerable α] : Nat -> Nat -> List α
-| lo, 0 => []
-| lo, (left+1) =>
-    if h : lo < Enumerable.card α then
-        Enumerable.enum.symm ⟨lo, h⟩ :: aux α (lo + 1) left
-    else [] -- Shouldn't happen, but makes the definition easy.
-
-/-- Create a list of every term in the Enumerable type in order. -/
-def Enumerable.listOf (α : Type u) [Enumerable α] : List α :=
-    Enumerable.listOf.aux α 0 (Enumerable.card α)
 
 def Vec.sum [Enumerable ι] [Add α] [OfNat α Nat.zero] (v : Vec ι α) : α := do
     let mut s : α := 0
@@ -287,68 +177,6 @@ example : DenseVec (Fin 3) Nat := ![2,22,222]
 
 open Enumerable
 
-class PreOrder (α : Type _) extends HasLessEq α, HasLess α where
-    le_refl : (a : α) → a ≤ a
-    le_trans : {a b c : α} → a ≤ b → b ≤ c → a ≤ c
-    Less := λ a b => a ≤ b ∧ ¬ b ≤ a
-    lt_iff_le_not_le : (a b : α) → a < b ↔ (a ≤ b ∧ ¬ b ≤ a)
-
-export PreOrder (le_refl le_trans lt_iff_le_not_le)
-
-section preorder_stuff
-variables {α : Type _} [PreOrder α]
-
-theorem le_of_lt {x y : α} (h : x < y) : x ≤ y :=
-    ((lt_iff_le_not_le _ _).mp h).1
-
-theorem not_le_of_gt {x y : α} (h : x > y) : ¬ x ≤ y :=
-    ((lt_iff_le_not_le _ _).mp h).2
-
-theorem lt_of_le_not_le {x y : α} (h : x ≤ y) (h' : ¬y ≤ x) : x < y :=
-    (lt_iff_le_not_le _ _).mpr (And.intro h h')
-
-#check @Eq.mp
-#print lt_of_le_not_le
-#check propext
-end preorder_stuff
-
-#check (. + . : Nat → Nat → Nat)
-@[defaultInstance]
-instance PreOrder.decidable_lt {α : Type _} [PreOrder α] [DecidableRel (. ≤ . : α → α → Prop)] :
-    DecidableRel (. < . : α → α → Prop)
-| a, b => if h : a ≤ b then
-        if h' : b ≤ a then
-            isFalse (λ h'' => not_le_of_gt h'' h')
-        else
-            isTrue (lt_of_le_not_le h h')
-    else
-        (isFalse λ h' => h (le_of_lt h') )
-
-#check (inferInstance : DecidableRel (. < . : Nat → Nat → Prop))
-
-instance : PreOrder Nat where
-    le_refl := Nat.leRefl
-    le_trans := Nat.leTrans
-    lt_iff_le_not_le := λ a b => by {
-        apply Iff.intro;
-        {
-            intro h;
-            exact ⟨Nat.leOfLt h, Nat.notLeOfGt h⟩
-        };
-        { intro | And.intro h h' => {
-                exact sorry
-            }
-        }
-    }
-
-class PartialOrder (α : Type _) extends PreOrder α where
-    le_antisymm : (a b : α) → a ≤ b → b ≤ a → a = b
-
-class LinearOrder (α : Type _) extends PartialOrder α where
-    le_total : (a b : α) → a ≤ b ∨ b ≤ a
-    [decidable_le : DecidableRel (HasLessEq.LessEq : α → α → Prop)]
-    [decidable_eq : DecidableEq α]
-    [decidable_lt : DecidableRel (HasLess.Less : α → α → Prop)]
 
 open PreOrder
 
@@ -524,79 +352,4 @@ def printMat (mat : SparseVec Nat (SparseVec Nat Float)) : IO Unit := do
 
 end SparseVec
 
-section ParsingMtx
-
-def parseFloat! : String → Float
-| str => do
-    let mut (sign, digits) : (Bool × String) := if str.front == '-' then (true, str.drop 1) else (false, str)
-    let pred c := c.isDigit
-    let (int, digits) := (Float.ofScientific (digits.takeWhile pred).toNat! false 0, digits.dropWhile pred)
-    let fracStr := String.takeWhile (digits.drop 1) pred
-    let frac := Float.ofScientific (fracStr.toNat!) true fracStr.length
-    if sign then 0.0 - (int + frac) else int + frac
-
-#eval parseFloat! "-3.534"
-
-def parseMTX (input : String) : (Nat × Nat × SparseVec Nat (SparseVec Nat Float)) := do
-    let ValueType := Float
-    let mut result : SparseVec Nat (SparseVec Nat ValueType) := #[]
-    let mut currentRowIndex : Nat := 1 -- TODO read from first line
-    let mut currentRow : SparseVec Nat ValueType := #[]
-    let mut nnz := 0
-
-    let lines := List.dropWhile (λ line => line.front == '%') (input.splitOn "\n")
-    for line in lines.drop 1 do {
-        nnz := nnz + 1
-        let data := line.splitOn " "
-        match data with
-        | [col, row, value] =>
-            let rowN := row.toNat!
-            if  rowN != currentRowIndex then
-                result := result.push (currentRowIndex, currentRow)
-                currentRowIndex := rowN
-                currentRow := #[]
-            currentRow := currentRow.push (col.toNat!, parseFloat! value)
-        | _ => nnz := nnz -- issue? return ()  no good
-    }
-    result := result.push (currentRowIndex, currentRow)
-    let n := currentRowIndex
-    -- result := result[:10000]
-    return (n, nnz, SparseVec.sparseTranspose n result)
-
-def loadTestCase : IO (Nat × SparseVec Nat (SparseVec Nat Float)) := do
-    let bench_too_large := "../../taco/benchmarks/thermomech_dK/thermomech_dK.mtx"
-    let benchSmall := "../../taco/benchmarks/sherman2/sherman2.mtx"
-    let benchTiny := "../../taco/benchmarks/test.mtx"
-    let input ← IO.FS.readFile benchSmall
-    let (n, nnz, matrix) := parseMTX input
-    IO.println s!"rows: {n}"
-    IO.println s!"nnz:  {nnz}"
-    return (n, matrix)
-
-end ParsingMtx
-
-open DenseVec
-open SparseVec
-
-#check (HasZero.zero : DenseVec (Fin 3) Nat)
-
 def Matrix := SparseVec Nat (SparseVec Nat Float)
-
-def printResult (out : Matrix) : IO Unit := do
-    IO.println "printing result"
-    IO.println s!"num nonzero rows: {out.size}"
-
-    for (index, row) in out[0:2] do
-        IO.println s!"{index}: {row[0:3].toArray}"
-
-    IO.println "done"
-
-def main : IO UInt32 := do
-    let (n, A) ← loadTestCase
-    let A' := sparseTranspose n A
-    IO.println "computing"
-
-    let out := A' * A * A'
-    printResult out
-
-    return 0
