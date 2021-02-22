@@ -1,5 +1,5 @@
 [package]
-name = "lean4-tensor"
+name = "lean4-sparse-tensor"
 version = "0.1"
 lean_version = "leanprover/lean4:nightly"
 path = "."

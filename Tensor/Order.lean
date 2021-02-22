@@ -7,7 +7,7 @@ class PreOrder (α : Type _) extends HasLessEq α, HasLess α where
 export PreOrder (le_refl le_trans lt_iff_le_not_le)
 
 section preorder_stuff
-variables {α : Type _} [PreOrder α]
+variable {α : Type _} [PreOrder α]
 
 theorem le_of_lt {x y : α} (h : x < y) : x ≤ y :=
     ((lt_iff_le_not_le _ _).mp h).1

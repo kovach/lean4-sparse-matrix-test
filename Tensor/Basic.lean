@@ -4,10 +4,6 @@ import Tensor.Order
 import Tensor.Enumerable
 
 section Util
-def fst : α × β → α
-| (a, _) => a
-def snd : α × β → β
-| (_, b) => b
 def range (n : Nat) : List Nat := do
     let mut result := []
     for x in [0:n] do
@@ -36,8 +32,7 @@ class HasVec (β : Type u) (ι : outParam $ Type v) (α : outParam $ Type w) whe
     toVec : β → Vec ι α
 export HasVec (toVec)
 
-instance : HasVec (Vec ι α) ι α where
-    toVec v := v
+instance : HasVec (Vec ι α) ι α := ⟨ id ⟩
 
 instance [Add α] : Add (Vec ι α) where
     add v w := vec i => v[i] + w[i]
@@ -67,8 +62,6 @@ def transpose (v : Vec ι (Vec κ α)) : Vec κ (Vec ι α) := vec j i => v[i][j
 
 end Vec
 
-
-
 def Vec.sum [Enumerable ι] [Add α] [OfNat α Nat.zero] (v : Vec ι α) : α := do
     let mut s : α := 0
     for i in Enumerable.listOf ι do
@@ -80,7 +73,7 @@ structure DenseVec (ι : Type u) [Enumerable ι] (α : Type v) where
     hasSize : array.size = Enumerable.card ι
 
 namespace DenseVec
-variables {ι : Type u} [Enumerable ι] {α : Type v}
+variable {ι : Type u} [Enumerable ι] {α : Type v}
 
 instance [Repr α] : Repr (DenseVec ι α) where
     reprPrec d _ := repr d.array
@@ -90,9 +83,11 @@ theorem sizeMapEq (a : Array α) (f : α → β) : (a.map f).size = a.size := so
 instance [HMul α α₁ α₁] : HMul α (DenseVec ι α₁) (DenseVec ι α₁) where
     hMul r u := ⟨ u.array.map (λ x => r * x) , (sizeMapEq _ _).symm ▸ u.hasSize⟩
 
+#check Array
+#check Array.size_mkArray
 def fill (a : α) : DenseVec ι α where
     array := Array.mkArray (Enumerable.card ι) a
-    hasSize := Array.sizeMkArrayEq ..
+    hasSize := Array.size_mkArray ..
 
 def empty [Inhabited α] : DenseVec ι α :=
     fill Inhabited.default
@@ -123,14 +118,14 @@ def of [HasVec β ι α] (v : β) : DenseVec ι α where
 /-- Set the value associated to a particular index. -/
 def set (v : DenseVec ι α) (i : ι) (a : α) : DenseVec ι α where
     array := v.array.set (v.translateIdx i) a
-    hasSize := by rw [Array.sizeSetEq, v.hasSize]
+    hasSize := by rw [Array.size_set, v.hasSize]
 
 def forIn {α : Type u} {β : Type v} {m : Type v → Type w} [Monad m] (as : DenseVec ι α) (b : β) (f : α → β → m (ForInStep β)) : m β :=
     as.array.forIn b f
 
 
 instance [HasZero α] [Enumerable ι] : HasZero (DenseVec ι α) where
-    zero := ⟨ Array.mkArray (Enumerable.card ι) HasZero.zero, Array.sizeMkArrayEq .. ⟩
+    zero := ⟨ Array.mkArray (Enumerable.card ι) HasZero.zero, Array.size_mkArray .. ⟩
 instance [HasZero α] [Enumerable ι] : OfNat (DenseVec ι α) 0 where
     ofNat := HasZero.zero
 
@@ -231,18 +226,18 @@ def merge_aux_aux [DecidableEq β] [HasLessEq β] [DecidableRel (. ≤ . : β �
 -- def mergeOrList [DecidableEq β] [HasLessEq β] [DecidableRel (. ≤ . : β → β → Prop)] : Nat → List (β × α) → List (β × α) → List (β × EitherOr α α)
 -- |  n, xs, ys => merge_aux_aux n xs ys [] |> List.reverse
 
-def mergeIntoArray [DecidableEq β] [le : HasLessEq β] [DecidableRel le.LessEq] :
+def mergeUnion [DecidableEq β] [le : HasLessEq β] [DecidableRel le.LessEq] :
     Nat → List (β × α) → List (β × α₁) → Array (β × EitherOr α α₁) → Array (β × EitherOr α α₁)
 | 0, _, _, acc => acc
 | (n+1), [], ys, acc => ys.foldl (λ acc (i, a) => acc.push (i, right a)) acc
 | (n+1), xs, [], acc => xs.foldl (λ acc (i, a) => acc.push (i, left a)) acc
 | (n+1), l1@(⟨i, x⟩ :: xs), l2@(⟨j, y⟩ :: ys), acc =>
     if i = j then
-        mergeIntoArray n xs ys (acc.push ⟨i, both x y⟩)
+        mergeUnion n xs ys (acc.push ⟨i, both x y⟩)
     else if i ≤ j then
-        mergeIntoArray n xs l2 (acc.push ⟨i, left x⟩)
+        mergeUnion n xs l2 (acc.push ⟨i, left x⟩)
     else
-        mergeIntoArray n l1 ys (acc.push (j, right y))
+        mergeUnion n l1 ys (acc.push (j, right y))
 
 -- def merge'' [DecidableEq β] [HasLessEq β] [DecidableRel (. ≤ . : β → β → Prop)] (xs : List (β × α)) (ys : List (β × α)) : List (β × EitherOr α) :=
 -- merge_aux_aux (xs.length + ys.length) xs ys []
@@ -261,14 +256,7 @@ def scaleArray [HMul α α₁ α₁] (r: α) (u : Array α₁) : Array α₁ :=
 
 instance [Mul α] : HMul α (Array α) (Array α) := ⟨ scaleArray ⟩
 
-structure Tensor? (ι α : Type _) :=
-    locate : ι → α
-    σ : Type _
-    s₀ : σ
-    iter : Stream σ (ι × α)
-    sound (s s' : σ) (i : ι) (v : α) : Stream.next? s = some ((i, v), s') → locate i = v
-    -- complete? every non-zero (locate ι) is reachable from s₀
-
+@[reducible]
 def SparseVec ι α := Array (ι × α)
 
 namespace SparseVec
@@ -280,17 +268,17 @@ def exAdd1 := ()
 def sparseAdd [s : Add α] [u : HasZero α] [DecidableEq β] [le : HasLessEq β] [DecidableRel le.LessEq]
     (xs ys : SparseVec β α ) : SparseVec β α := do
     let mut res := Array.empty
-    for (coord, values) in mergeIntoArray (xs.size + ys.size) xs.toList ys.toList Array.empty do
+    for (coord, values) in mergeUnion (xs.size + ys.size) xs.toList ys.toList Array.empty do
         res := res.push (coord, EitherOr.reduce u.zero s.add values)
     return res
 
-#eval sparseAdd #[(1, 1), (2, 3)] #[(1,1),(2,1)]
+#reduce λ a b => sparseAdd #[(1, a), (2, 3)] #[(1,b),(2,1)]
 
 def map (f : α → β) (v : SparseVec ι α) : SparseVec ι β :=
     Array.map (λ (c, x) => (c, f x)) v
 
 def ofDenseList : List α → SparseVec Nat α
-| values => snd $ values.foldr (init := (0, #[])) λ v (n, acc) => (n+1, acc.push (n,v))
+| values => Prod.snd $ values.foldr (init := (0, #[])) λ v (n, acc) => (n+1, acc.push (n,v))
 
 instance [HMul α α₁ α₁] : HMul α (SparseVec ι α₁) (SparseVec ι α₁) where
     hMul r v := Array.map (λ (c, x) => (c, r * x)) v
@@ -302,7 +290,7 @@ instance : HasZero (SparseVec ι α) where
     zero := #[]
 instance : Inhabited (SparseVec ι α) := ⟨ HasZero.zero ⟩
 
-def mergeAndIntoArray [DecidableEq β] [le : HasLessEq β] [DecidableRel le.LessEq] (n : Nat)
+def mergeIntersection [DecidableEq β] [le : HasLessEq β] [DecidableRel le.LessEq] (n : Nat)
     (xs : List (β × α₀)) (ys : List (β × α₁))
     : Array (β × (α₀ × α₁)) := do
 let rec step
@@ -322,14 +310,14 @@ step n xs ys #[]
 def hMulDot [s : HMul α α₁ α₁] [Add α₁] [u : HasZero α₁] [DecidableEq ι] [HasLessEq ι]
     [le : HasLessEq ι] [DecidableRel le.LessEq] (xs : SparseVec ι α) (ys : SparseVec ι α₁) : α₁ := do
     let mut res := (u.zero : α₁)
-    for (_, (scalar, vector)) in mergeAndIntoArray (xs.size + ys.size) xs.toList ys.toList do
+    for (_, (scalar, vector)) in mergeIntersection (xs.size + ys.size) xs.toList ys.toList do
         res := res + scalar * vector
     return res
 
 def linearCombinationOfRows [DecidableEq ι] [le : HasLessEq ι] [DecidableRel le.LessEq]
-    [HMul α β β] [Add β] [HasZero β]
+    [s : HMul α β β] [Add β] [HasZero β]
          (A : SparseVec Nat (SparseVec ι α)) (B : SparseVec ι β) : SparseVec Nat β := do
-    A.map (λ row => hMulDot row B)
+    A.map (λ row => hMulDot (s := s) row B)
 
 instance [DecidableEq ι] [le : HasLessEq ι] [DecidableRel le.LessEq]
     [HMul α β β] [Add β] [HasZero β]
@@ -342,6 +330,7 @@ def sparseTranspose (n : Nat) (A : SparseVec Nat (SparseVec Nat α)) : SparseVec
         for (coord, value) in row do
             out := Array.set! out (coord-1) (coord, out[coord-1].2.push (rowC, value))
     return out
+
 -- todo: remove Nat arg
 -- postfix:max "ᵀ" => sparseTranspose
 

@@ -1,3 +1,6 @@
+import Init.Data.Nat.Basic
+import Init.Core
+
 macro "exfalso" : tactic => `(apply False.elim)
 
 def Function.leftInverse (g : β → α) (f : α → β) : Prop :=
@@ -27,11 +30,12 @@ class Enumerable (α : Type u) where
     card : Nat
     enum : α ≃ Fin card
 
+#check Nat.succ_mul
 theorem cartEncodeProp {i j m n : Nat} (hi : i < m) (hj : j < n) : i * n + j < m * n := by
     cases m with
     | zero => exfalso; exact Nat.notLtZero _ hi
     | succ m => {
-        rw Nat.succMul;
+        rw [Nat.succ_mul];
         exact Nat.ltOfLeOfLt (Nat.addLeAddRight (Nat.mulLeMulRight _ (Nat.leOfLtSucc hi)) _) (Nat.addLtAddLeft hj _)
     }
 
@@ -39,7 +43,7 @@ def cartDecode {n m : Nat} (k : Fin (n * m)) : Fin n × Fin m :=
     let ⟨k, h⟩ := k
     (
         ⟨k / m, sorry⟩,
-        ⟨k % m, Nat.modLt _ (by { cases m; exfalso; rw Nat.mulZero at h; exact Nat.notLtZero _ h; apply Nat.succPos})⟩
+        ⟨k % m, Nat.modLt _ (by { cases m; exfalso; rw Nat.mul_zero at h; exact Nat.notLtZero _ h; apply Nat.succPos})⟩
     )
 
 instance [Enumerable α] [Enumerable β] : Enumerable (α × β) where
