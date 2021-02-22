@@ -1,10 +1,9 @@
+-- Scott Kovach
 import Tensor.Basic
 
 open SparseVec
 
 section ParsingMtx
-open DenseVec
-open SparseVec
 
 def parseFloat! : String → Float
 | str => do
@@ -36,41 +35,41 @@ def parseMTX (input : String) : (Nat × Nat × SparseVec Nat (SparseVec Nat Floa
                 currentRowIndex := rowN
                 currentRow := #[]
             currentRow := currentRow.push (col.toNat!, parseFloat! value)
-        | _ => () -- issue? return ()  no good
+        | _ => () -- issue? return () no good
     }
     result := result.push (currentRowIndex, currentRow)
     let n := currentRowIndex
-    -- result := result[:10000]
-    return (n, nnz, SparseVec.sparseTranspose n result)
+    return (n, nnz, SparseVec.sparseTranspose result)
 
 def loadTestCase : IO (Nat × SparseVec Nat (SparseVec Nat Float)) := do
-    let bench_too_large := "../../taco/benchmarks/thermomech_dK/thermomech_dK.mtx"
-    let benchSmall := "../../taco/benchmarks/sherman2/sherman2.mtx"
-    let benchTiny := "../../taco/benchmarks/test.mtx"
-    let input ← IO.FS.readFile benchSmall
+    let benchmarkFile := "sherman2.mtx"
+    let input ← IO.FS.readFile benchmarkFile
     let (n, nnz, matrix) := parseMTX input
     IO.println s!"rows: {n}"
     IO.println s!"nnz:  {nnz}"
     return (n, matrix)
+
 end ParsingMtx
 
-def printResult (out : Matrix) : IO Unit := do
+def printTruncatedResult (m : Matrix) : IO Unit := do
     IO.println "printing result"
-    IO.println s!"num nonzero rows: {out.size}"
+    IO.println s!"num nonzero rows: {m.size}"
 
-    for (index, row) in out[0:2] do
+    for (index, row) in m[0:2] do
         IO.println s!"{index}: {row[0:3].toArray}"
 
     IO.println "done"
 
+/- expected for A' * A
+1: #[(1, 29219761447887.066406), (2, 4508680898504.898438), (3, -494715800453.345886)]
+2: #[(1, 4508680898504.898438), (2, 695717389901.341919), (3, -76345788006.166794)]
+-/
 def main : IO UInt32 := do
     let (n, A) ← loadTestCase
-    let A' := sparseTranspose n A
     IO.println "computing"
 
-    let out := A' * A
-    printResult out
+    let out := Aᵀ * A -- linearCombinationOfRows (sparseTranspose A) A
+    printTruncatedResult out
 
-    IO.println "updated"
-
+    IO.println "finished"
     return 0
