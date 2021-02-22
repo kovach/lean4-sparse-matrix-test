@@ -1,3 +1,4 @@
+-- todo: should have used OfNat?
 class HasZero (α : Type _) where zero : α
 class HasOne (α : Type _) where one : α
 instance : HasZero Nat where zero := 0

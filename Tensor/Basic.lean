@@ -2,7 +2,6 @@
 import Init.Data.Array.Subarray
 import Init.Data.Float
 import Std.Data.RBMap
-import Tensor.Has
 
 inductive EitherOr (α β : Type _)
 | left : α → EitherOr α β
@@ -52,14 +51,15 @@ namespace SparseVec
 -- instance [r : Repr (Array (ι × α))] : Repr (SparseVec ι α) := ⟨ r.reprPrec ⟩
 -- instance [r : ToString (Array (ι × α))] : ToString (SparseVec ι α) := ⟨ r.toString ⟩
 
-def sparseAdd [s : Add α] [u : HasZero α] [DecidableEq β] [le : HasLessEq β] [DecidableRel le.LessEq]
-    (xs ys : SparseVec β α ) : SparseVec β α := do
+-- todo: use algebraic class instead of OfNat
+def sparseAdd [s : Add α] [OfNat α 0] [DecidableEq ι] [le : HasLessEq ι] [DecidableRel le.LessEq]
+    (xs ys : SparseVec ι α ) : SparseVec ι α := do
     let mut res := Array.empty
     for (coord, values) in mergeUnion (xs.size + ys.size) xs.toList ys.toList Array.empty do
-        res := res.push (coord, EitherOr.reduce u.zero s.add values)
+        res := res.push (coord, EitherOr.reduce 0 s.add values)
     return res
 
-#eval sparseAdd #[(1, 3), (5, 4)] #[(1,5),(2,1)]
+#eval sparseAdd #[(1,3), (5,4)] #[(1,5), (2,1)]
 
 def map (f : α → β) (v : SparseVec ι α) : SparseVec ι β :=
     Array.map (λ (c, x) => (c, f x)) v
@@ -70,12 +70,12 @@ def ofDenseList : List α → SparseVec Nat α
 instance [HMul α α₁ α₁] : HMul α (SparseVec ι α₁) (SparseVec ι α₁) where
     hMul r v := Array.map (λ (c, x) => (c, r * x)) v
 
-instance [HasZero α] [le: HasLessEq ι] [DecidableEq ι] [DecidableRel le.LessEq] [Add α] : Add (SparseVec ι α) where
+instance [OfNat α 0] [le: HasLessEq ι] [DecidableEq ι] [DecidableRel le.LessEq] [Add α] : Add (SparseVec ι α) where
     add u v := sparseAdd u v
 
-instance : HasZero (SparseVec ι α) where
-    zero := #[]
-instance : Inhabited (SparseVec ι α) := ⟨ HasZero.zero ⟩
+instance : OfNat (SparseVec ι α) 0 where
+    ofNat := #[]
+instance : Inhabited (SparseVec ι α) := ⟨ #[] ⟩
 
 def mergeIntersection [DecidableEq β] [le : HasLessEq β] [DecidableRel le.LessEq] (n : Nat)
     (xs : List (β × α₀)) (ys : List (β × α₁))
@@ -94,20 +94,20 @@ let rec step
             step n l1 ys acc
 step n xs ys #[]
 
-def hMulDot [s : HMul α α₁ α₁] [Add α₁] [u : HasZero α₁] [DecidableEq ι] [HasLessEq ι]
+def hMulDot [s : HMul α α₁ α₁] [Add α₁] [OfNat α₁ 0] [DecidableEq ι] [HasLessEq ι]
     [le : HasLessEq ι] [DecidableRel le.LessEq] (xs : SparseVec ι α) (ys : SparseVec ι α₁) : α₁ := do
-    let mut res := (u.zero : α₁)
+    let mut res := 0
     for (_, (scalar, vector)) in mergeIntersection (xs.size + ys.size) xs.toList ys.toList do
         res := res + scalar * vector
     return res
 
 def linearCombinationOfRows [DecidableEq ι] [le : HasLessEq ι] [DecidableRel le.LessEq]
-    [s : HMul α β β] [Add β] [HasZero β]
+    [s : HMul α β β] [Add β] [OfNat β 0]
          (A : SparseVec Nat (SparseVec ι α)) (B : SparseVec ι β) : SparseVec Nat β := do
     A.map (λ row => hMulDot (s := s) row B)
 
 instance [DecidableEq ι] [le : HasLessEq ι] [DecidableRel le.LessEq]
-    [HMul α β β] [Add β] [HasZero β]
+    [HMul α β β] [Add β] [OfNat β 0]
     : HMul (SparseVec Nat (SparseVec ι α)) (SparseVec ι β) (SparseVec Nat β) :=
     ⟨ linearCombinationOfRows ⟩
 
